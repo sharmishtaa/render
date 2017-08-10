@@ -204,6 +204,7 @@ public class RenderParameters implements Serializable {
      *   if any invalid arguments are specified.
      */
     public static RenderParameters parseCommandLineArgs(final String[] args) throws IllegalArgumentException {
+    	System.out.println(args[0]);
         final RenderParameters parameters = new RenderParameters();
         parameters.setCommander();
         try {
