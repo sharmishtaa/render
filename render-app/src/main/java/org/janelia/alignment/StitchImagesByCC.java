@@ -95,6 +95,7 @@ import mpicbg.stitching.ImagePlusTimePoint;
 import mpicbg.stitching.CollectionStitchingImgLib;
 import mpicbg.stitching.ImageCollectionandHashContainer;
 
+
 import java.util.HashMap;
 import java.util.Map;
 import java.util.*;
@@ -106,6 +107,7 @@ import java.io.InputStreamReader;
 import org.janelia.alignment.json.JsonUtils;
 import org.janelia.alignment.spec.TileSpec;
 import org.janelia.alignment.spec.LeafTransformSpec;
+import org.janelia.alignment.spec.ReferenceTransformSpec;
 import org.janelia.alignment.spec.ListTransformSpec;
 
 
@@ -138,9 +140,11 @@ public class StitchImagesByCC
         @Parameter( names = "--outputImage", description = "Path to save image file", required = false )
         public String outputImage = null;
        
-        @Parameter( names = "--outputJson", description = "Path to save Json file", required = false )
-        public String outputJson = null;
+        @Parameter( names = "--outputtilespec", description = "Path to save Json file", required = false )
+        public String outputtilespec = null;
        
+        @Parameter( names = "--outputtransformspec", description = "Path to save Json file", required = false )
+        public String outputtransformspec = null;
         
         @Parameter( names = "--addChannel", description = "Channel to add", required = false )
         public List<String> addChannel = null;
@@ -150,6 +154,8 @@ public class StitchImagesByCC
         
         @Parameter( names = "--inputtilespec", description = "Json file containing tile specs", required = false)
         public String inputtilespec = null;
+        
+        
         
         //test
 	}
@@ -244,8 +250,35 @@ public class StitchImagesByCC
       	}
 	}
 	
+	public static void adjustmodels_nonnegative(ArrayList<TranslationModel2D> translation_models)
+	{
+		double minx = 0.0f;
+		double miny = 0.0f;
+		ArrayList<Double> tx = new ArrayList();
+		ArrayList<Double> ty = new ArrayList();
+		
+		for (int i = 0; i < translation_models.size(); i++)
+		{
+			double [] l = {0,0};
+			translation_models.get(i).applyInPlace(l);
+			tx.add(l[0]);
+			ty.add(l[1]);
+			if (l[0] < minx)
+				minx = l[0];
+			if (l[1] < miny)
+				miny = l[1];
+		}
+		
+		for (int i = 0; i < translation_models.size(); i++)
+			translation_models.get(i).set(tx.get(i)-minx, ty.get(i)-miny);		
+	
+	}
+	
 	public  static void outputtojson(ArrayList<ImagePlus> imagesR, ArrayList<TranslationModel2D> translation_models, Map<String,Integer> rawelementshash, List<TileSpec> tileSpecs, Params params)
 	{
+		
+		ArrayList <ListTransformSpec> transformlist = new ArrayList();
+		
 		for (int w = 0; w < imagesR.size(); w++)
         {
       		String fname = imagesR.get(w).getTitle();
@@ -260,15 +293,26 @@ public class StitchImagesByCC
       		String newdatastring = "";
       		for (int q = 0; q < op.length; q++)
       			newdatastring = newdatastring + op[q] + " ";
+      		
+      		// Add the transform with ID to transformspec and reference in tilespec
+      		
+      		String id = "trans_"+ tileSpecs.get(p).getTileId().toString();
+      		
       		LeafTransformSpec newlts = new LeafTransformSpec(lts.getClassName(), newdatastring);
+      		ListTransformSpec mytlist = new ListTransformSpec(id,null);
+      		mytlist.addSpec(newlts);
+      		transformlist.add(mytlist);
+      		
+      		ReferenceTransformSpec newreflts = new ReferenceTransformSpec(id);
       		ListTransformSpec mylist = new ListTransformSpec();
-      		mylist.addSpec(newlts);
-      	
+      		mylist.addSpec(newreflts);
       		//set the tilespec's transform to the new one
-      		tileSpecs.get(p).setTransforms(mylist);
+      		tileSpecs.get(p).setTransforms(mylist);      		
+      		
       		
         }
 
+		//output tilespecs
       	final StringBuilder json = new StringBuilder(16 * 1024);
       	for (int n = 0; n< tileSpecs.size(); n++)
       	{
@@ -278,17 +322,13 @@ public class StitchImagesByCC
       		json.append(myjson);
       	}
       	
-      	
-      	
-      	
-      	
       	FileOutputStream jsonStream = null;
       	String par1 = "[";
       	String par2 = "]";
       		
       	try 
       	{
-      		jsonStream = new FileOutputStream(params.outputJson);
+      		jsonStream = new FileOutputStream(params.outputtilespec);
       		jsonStream.write(par1.getBytes());
             jsonStream.write(json.toString().getBytes());
             jsonStream.write(par2.getBytes());
@@ -296,7 +336,34 @@ public class StitchImagesByCC
       	catch (final IOException e) 
       	{
             throw new RuntimeException("failed to write to JSON stream", e);
-        }
+
+      	}
+      	
+      	//output transformspecs
+      	final StringBuilder json1 = new StringBuilder(16 * 1024);
+      	for (int n = 0; n< transformlist.size(); n++)
+      	{
+      		String myjson =transformlist.get(n).toJson() ;
+      		if (n < transformlist.size()-1)
+      			myjson = myjson + ","; 
+      		json1.append(myjson);
+      	}
+      			
+      	FileOutputStream jsonStream1 = null;
+      	
+      	try 
+      	{
+      		jsonStream1 = new FileOutputStream(params.outputtransformspec);
+      		jsonStream1.write(par1.getBytes());
+            jsonStream1.write(json1.toString().getBytes());
+            jsonStream1.write(par2.getBytes());
+        } 
+      	catch (final IOException e) 
+      	{
+            throw new RuntimeException("failed to write to JSON stream", e);
+
+      	}
+
 	}
 	
 	public static ArrayList<String> readandsetinput(List<TileSpec> tileSpecs, ArrayList<ImageCollectionElement> elements,Map<String,Integer> rawelementshash, ArrayList<Float> rawx, ArrayList<Float> rawy )
@@ -462,6 +529,8 @@ public class StitchImagesByCC
       	}
       	
       	//output to json 
+      	
+      	adjustmodels_nonnegative(translation_models);
       	outputtojson(imagesR, translation_models, rawelementshash, tileSpecs, params);
       	/*for (int w = 0; w < imagesR.size(); w++)
         {
